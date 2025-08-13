@@ -1,7 +1,7 @@
+use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
-use chrono::Utc;
 
 #[derive(Debug)]
 pub struct StructuredLogger;
@@ -21,7 +21,7 @@ impl StructuredLogger {
             "status_code": status,
             "service": "job-tracker-backend"
         });
-        
+
         info!("{}", log_entry);
     }
 
@@ -30,10 +30,10 @@ impl StructuredLogger {
             "timestamp": Utc::now().to_rfc3339(),
             "event_type": "database_query",
             "query_hash": format!("{:x}", md5::compute(query)),
-            "query_preview": if query.len() > 100 { 
-                format!("{}...", &query[..100]) 
-            } else { 
-                query.to_string() 
+            "query_preview": if query.len() > 100 {
+                format!("{}...", &query[..100])
+            } else {
+                query.to_string()
             },
             "duration_ms": duration_ms,
             "result_count": result_count,
@@ -62,7 +62,12 @@ impl StructuredLogger {
         error!("{}", log_entry);
     }
 
-    pub fn log_performance_metric(&self, metric_name: &str, value: f64, tags: HashMap<String, String>) {
+    pub fn log_performance_metric(
+        &self,
+        metric_name: &str,
+        value: f64,
+        tags: HashMap<String, String>,
+    ) {
         let log_entry = json!({
             "timestamp": Utc::now().to_rfc3339(),
             "event_type": "performance_metric",
@@ -75,7 +80,12 @@ impl StructuredLogger {
         info!("{}", log_entry);
     }
 
-    pub fn log_business_event(&self, event_name: &str, user_id: Option<i32>, metadata: HashMap<String, serde_json::Value>) {
+    pub fn log_business_event(
+        &self,
+        event_name: &str,
+        user_id: Option<i32>,
+        metadata: HashMap<String, serde_json::Value>,
+    ) {
         let mut log_entry = json!({
             "timestamp": Utc::now().to_rfc3339(),
             "event_type": "business_event",

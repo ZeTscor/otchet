@@ -1,9 +1,9 @@
-use std::time::Instant;
-use std::collections::HashMap;
-use sqlx::{PgPool, Row};
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc, Duration};
 use crate::utils::logger::LOGGER;
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use std::time::Instant;
 
 /// Production-ready caching service with multiple storage backends
 #[derive(Debug)]
@@ -47,12 +47,12 @@ impl CacheService {
     }
 
     /// Get value from cache with fallback strategy
-    pub async fn get<T>(&self, key: &str) -> Result<T, CacheError> 
+    pub async fn get<T>(&self, key: &str) -> Result<T, CacheError>
     where
         T: for<'de> Deserialize<'de>,
     {
         let start_time = Instant::now();
-        
+
         // Try memory cache first (fastest)
         if let Ok(value) = self.get_from_memory(key) {
             self.log_cache_hit("memory", key, start_time.elapsed().as_millis() as f64);
@@ -65,7 +65,7 @@ impl CacheService {
             Ok(value) => {
                 // Store in memory for next time
                 self.store_in_memory(key, &value, Duration::minutes(30));
-                
+
                 self.log_cache_hit("database", key, start_time.elapsed().as_millis() as f64);
                 serde_json::from_value(value)
                     .map_err(|e| CacheError::SerializationError(e.to_string()))
@@ -93,16 +93,30 @@ impl CacheService {
             "cache_set",
             None,
             [
-                ("cache_key".to_string(), serde_json::Value::String(key.to_string())),
-                ("ttl_seconds".to_string(), serde_json::Value::Number(serde_json::Number::from(ttl.num_seconds())))
-            ].iter().cloned().collect()
+                (
+                    "cache_key".to_string(),
+                    serde_json::Value::String(key.to_string()),
+                ),
+                (
+                    "ttl_seconds".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(ttl.num_seconds())),
+                ),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
         );
 
         Ok(())
     }
 
     /// Get or compute value with caching
-    pub async fn get_or_compute<T, F, Fut>(&self, key: &str, ttl: Duration, compute_fn: F) -> Result<T, CacheError>
+    pub async fn get_or_compute<T, F, Fut>(
+        &self,
+        key: &str,
+        ttl: Duration,
+        compute_fn: F,
+    ) -> Result<T, CacheError>
     where
         T: Serialize + for<'de> Deserialize<'de>,
         F: FnOnce() -> Fut,
@@ -114,19 +128,22 @@ impl CacheService {
             Err(CacheError::NotFound) => {
                 // Compute new value
                 let computed_value = compute_fn().await?;
-                
+
                 // Store in cache
                 self.set(key, &computed_value, ttl).await?;
-                
+
                 LOGGER.log_business_event(
                     "cache_computed",
                     None,
                     [(
                         "cache_key".to_string(),
-                        serde_json::Value::String(key.to_string())
-                    )].iter().cloned().collect()
+                        serde_json::Value::String(key.to_string()),
+                    )]
+                    .iter()
+                    .cloned()
+                    .collect(),
                 );
-                
+
                 Ok(computed_value)
             }
             Err(e) => Err(e),
@@ -152,8 +169,11 @@ impl CacheService {
             None,
             [(
                 "cache_key".to_string(),
-                serde_json::Value::String(key.to_string())
-            )].iter().cloned().collect()
+                serde_json::Value::String(key.to_string()),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
 
         Ok(())
@@ -170,7 +190,7 @@ impl CacheService {
                 .filter(|k| k.contains(pattern))
                 .cloned()
                 .collect();
-            
+
             for key in keys_to_remove {
                 cache.remove(&key);
                 invalidated += 1;
@@ -190,9 +210,18 @@ impl CacheService {
             "cache_pattern_invalidated",
             None,
             [
-                ("pattern".to_string(), serde_json::Value::String(pattern.to_string())),
-                ("invalidated_count".to_string(), serde_json::Value::Number(serde_json::Number::from(invalidated)))
-            ].iter().cloned().collect()
+                (
+                    "pattern".to_string(),
+                    serde_json::Value::String(pattern.to_string()),
+                ),
+                (
+                    "invalidated_count".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(invalidated)),
+                ),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
         );
 
         Ok(invalidated)
@@ -216,7 +245,7 @@ impl CacheService {
             "SELECT 
                 COUNT(*) as total_keys,
                 COUNT(CASE WHEN expires_at < NOW() THEN 1 END) as expired_keys
-             FROM cache_store"
+             FROM cache_store",
         )
         .fetch_one(&self.pool)
         .await
@@ -274,8 +303,11 @@ impl CacheService {
                 None,
                 [(
                     "cleaned_entries".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(cleaned))
-                )].iter().cloned().collect()
+                    serde_json::Value::Number(serde_json::Number::from(cleaned)),
+                )]
+                .iter()
+                .cloned()
+                .collect(),
             );
         }
 
@@ -287,29 +319,29 @@ impl CacheService {
         let start_time = Instant::now();
 
         // Pre-cache commonly accessed analytics
-        let _ = self.get_or_compute("analytics_summary", Duration::minutes(30), || async {
-            // Simulate analytics computation
-            Ok(serde_json::json!({
-                "total_students": 0,
-                "total_applications": 0,
-                "cached": true
-            }))
-        }).await;
+        let _ = self
+            .get_or_compute("analytics_summary", Duration::minutes(30), || async {
+                // Simulate analytics computation
+                Ok(serde_json::json!({
+                    "total_students": 0,
+                    "total_applications": 0,
+                    "cached": true
+                }))
+            })
+            .await;
 
         // Pre-cache user activity patterns
-        let _ = self.get_or_compute("activity_patterns", Duration::minutes(15), || async {
-            Ok(serde_json::json!({
-                "patterns": [],
-                "cached": true
-            }))
-        }).await;
+        let _ = self
+            .get_or_compute("activity_patterns", Duration::minutes(15), || async {
+                Ok(serde_json::json!({
+                    "patterns": [],
+                    "cached": true
+                }))
+            })
+            .await;
 
         let duration = start_time.elapsed();
-        LOGGER.log_performance_metric(
-            "cache_warmup", 
-            duration.as_millis() as f64,
-            HashMap::new()
-        );
+        LOGGER.log_performance_metric("cache_warmup", duration.as_millis() as f64, HashMap::new());
 
         Ok(())
     }
@@ -357,24 +389,28 @@ impl CacheService {
     }
 
     async fn get_from_database(&self, key: &str) -> Result<serde_json::Value, CacheError> {
-        let row = sqlx::query(
-            "SELECT value FROM cache_store WHERE key = $1 AND expires_at > NOW()"
-        )
-        .bind(key)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| CacheError::NotFound)?;
+        let row =
+            sqlx::query("SELECT value FROM cache_store WHERE key = $1 AND expires_at > NOW()")
+                .bind(key)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|_| CacheError::NotFound)?;
 
         Ok(row.get(0))
     }
 
-    async fn store_in_database(&self, key: &str, value: &serde_json::Value, ttl: Duration) -> Result<(), CacheError> {
+    async fn store_in_database(
+        &self,
+        key: &str,
+        value: &serde_json::Value,
+        ttl: Duration,
+    ) -> Result<(), CacheError> {
         let expires_at = Utc::now() + ttl;
 
         sqlx::query(
             "INSERT INTO cache_store (key, value, expires_at) 
              VALUES ($1, $2, $3) 
-             ON CONFLICT (key) DO UPDATE SET value = $2, expires_at = $3"
+             ON CONFLICT (key) DO UPDATE SET value = $2, expires_at = $3",
         )
         .bind(key)
         .bind(value)
@@ -388,20 +424,26 @@ impl CacheService {
 
     fn log_cache_hit(&self, cache_type: &str, key: &str, duration_ms: f64) {
         LOGGER.log_performance_metric(
-            "cache_hit", 
+            "cache_hit",
             duration_ms,
             [
                 ("cache_type".to_string(), cache_type.to_string()),
-                ("cache_key".to_string(), key.to_string())
-            ].iter().cloned().collect()
+                ("cache_key".to_string(), key.to_string()),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
         );
     }
 
     fn log_cache_miss(&self, key: &str, duration_ms: f64) {
         LOGGER.log_performance_metric(
-            "cache_miss", 
+            "cache_miss",
             duration_ms,
-            [("cache_key".to_string(), key.to_string())].iter().cloned().collect()
+            [("cache_key".to_string(), key.to_string())]
+                .iter()
+                .cloned()
+                .collect(),
         );
     }
 }
@@ -422,11 +464,15 @@ pub struct TypedCache<T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> TypedCache<T> 
+impl<T> TypedCache<T>
 where
     T: Serialize + for<'de> Deserialize<'de>,
 {
-    pub fn new(cache: std::sync::Arc<CacheService>, key_prefix: String, default_ttl: Duration) -> Self {
+    pub fn new(
+        cache: std::sync::Arc<CacheService>,
+        key_prefix: String,
+        default_ttl: Duration,
+    ) -> Self {
         Self {
             cache,
             key_prefix,
@@ -451,7 +497,9 @@ where
         Fut: std::future::Future<Output = Result<T, CacheError>>,
     {
         let key = format!("{}:{}", self.key_prefix, id);
-        self.cache.get_or_compute(&key, self.default_ttl, compute_fn).await
+        self.cache
+            .get_or_compute(&key, self.default_ttl, compute_fn)
+            .await
     }
 
     pub async fn invalidate(&self, id: &str) -> Result<(), CacheError> {

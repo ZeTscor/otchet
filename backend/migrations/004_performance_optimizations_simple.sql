@@ -33,8 +33,13 @@ CREATE INDEX IF NOT EXISTS idx_applications_updated_status
 ON applications(updated_at, status);
 
 -- Add basic constraint for applied_date (simplified)
-ALTER TABLE applications ADD CONSTRAINT check_applied_date_reasonable 
-CHECK (applied_date >= '2020-01-01' AND applied_date <= CURRENT_DATE + INTERVAL '1 day');
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_applied_date_reasonable') THEN
+        ALTER TABLE applications ADD CONSTRAINT check_applied_date_reasonable 
+        CHECK (applied_date >= '2020-01-01' AND applied_date <= CURRENT_DATE + INTERVAL '1 day');
+    END IF;
+END $$;
 
 -- Add table for caching query results
 CREATE TABLE IF NOT EXISTS cache_store (
@@ -82,11 +87,21 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add audit triggers to critical tables
-CREATE TRIGGER audit_applications AFTER INSERT OR UPDATE OR DELETE ON applications
-FOR EACH ROW EXECUTE FUNCTION audit_trigger();
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'audit_applications') THEN
+        CREATE TRIGGER audit_applications AFTER INSERT OR UPDATE OR DELETE ON applications
+        FOR EACH ROW EXECUTE FUNCTION audit_trigger();
+    END IF;
+END $$;
 
-CREATE TRIGGER audit_users AFTER INSERT OR UPDATE OR DELETE ON users  
-FOR EACH ROW EXECUTE FUNCTION audit_trigger();
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'audit_users') THEN
+        CREATE TRIGGER audit_users AFTER INSERT OR UPDATE OR DELETE ON users  
+        FOR EACH ROW EXECUTE FUNCTION audit_trigger();
+    END IF;
+END $$;
 
 -- Update table statistics
 ANALYZE applications;

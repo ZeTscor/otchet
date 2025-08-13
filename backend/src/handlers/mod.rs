@@ -1,6 +1,6 @@
-pub mod auth;
-pub mod applications;
 pub mod admin;
+pub mod applications;
+pub mod auth;
 pub mod files;
-pub mod notifications;
 pub mod metrics;
+pub mod notifications;

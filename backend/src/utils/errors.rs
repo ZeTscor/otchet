@@ -3,9 +3,9 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
@@ -37,36 +37,15 @@ impl IntoResponse for AppError {
                 "Validation failed".to_string(),
                 Some(errors.clone()),
             ),
-            AppError::NotFound(msg) => (
-                StatusCode::NOT_FOUND,
-                "NOT_FOUND",
-                msg.clone(),
-                None,
-            ),
-            AppError::Unauthorized(msg) => (
-                StatusCode::UNAUTHORIZED,
-                "UNAUTHORIZED",
-                msg.clone(),
-                None,
-            ),
-            AppError::Forbidden(msg) => (
-                StatusCode::FORBIDDEN,
-                "FORBIDDEN",
-                msg.clone(),
-                None,
-            ),
-            AppError::Conflict(msg) => (
-                StatusCode::CONFLICT,
-                "CONFLICT",
-                msg.clone(),
-                None,
-            ),
-            AppError::BadRequest(msg) => (
-                StatusCode::BAD_REQUEST,
-                "BAD_REQUEST",
-                msg.clone(),
-                None,
-            ),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg.clone(), None),
+            AppError::Unauthorized(msg) => {
+                (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", msg.clone(), None)
+            }
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg.clone(), None),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg.clone(), None),
+            AppError::BadRequest(msg) => {
+                (StatusCode::BAD_REQUEST, "BAD_REQUEST", msg.clone(), None)
+            }
             AppError::UnsupportedMediaType(msg) => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "UNSUPPORTED_MEDIA_TYPE",
@@ -101,12 +80,13 @@ impl IntoResponse for AppError {
 impl From<validator::ValidationErrors> for AppError {
     fn from(errors: validator::ValidationErrors) -> Self {
         let mut error_map = HashMap::new();
-        
+
         for (field, field_errors) in errors.field_errors() {
             let messages: Vec<String> = field_errors
                 .iter()
                 .map(|error| {
-                    error.message
+                    error
+                        .message
                         .as_ref()
                         .map(|msg| msg.to_string())
                         .unwrap_or_else(|| format!("Invalid value for field '{}'", field))
@@ -114,7 +94,7 @@ impl From<validator::ValidationErrors> for AppError {
                 .collect();
             error_map.insert(field.to_string(), messages);
         }
-        
+
         AppError::ValidationError(error_map)
     }
 }

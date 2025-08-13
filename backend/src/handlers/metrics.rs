@@ -1,5 +1,5 @@
 use axum::{
-    extract::{State, Extension, Query},
+    extract::{Extension, Query, State},
     http::StatusCode,
     response::Json,
 };
@@ -8,10 +8,10 @@ use std::collections::HashMap;
 
 use crate::{
     middleware::auth::AuthUser,
-    services::metrics::{MetricsService, MetricsError, TimeBasedMetrics},
     services::cache::{CacheService, CacheStats},
-    AppState,
+    services::metrics::{MetricsError, MetricsService, TimeBasedMetrics},
     utils::logger::LOGGER,
+    AppState,
 };
 
 #[derive(Debug, Deserialize)]
@@ -41,14 +41,17 @@ pub async fn get_anonymous_metrics(
     Query(query): Query<MetricsQuery>,
 ) -> Result<Json<MetricsResponse>, StatusCode> {
     // Only admins can access metrics
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         LOGGER.log_business_event(
             "unauthorized_metrics_access",
             Some(auth_user.user_id),
             [(
-                "role".to_string(), 
-                serde_json::Value::String(auth_user.role)
-            )].iter().cloned().collect()
+                "role".to_string(),
+                serde_json::Value::String(auth_user.role_str().to_string()),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -61,17 +64,29 @@ pub async fn get_anonymous_metrics(
     let start_time = std::time::Instant::now();
     let metrics_service = MetricsService::new(state.db.clone());
 
-    match metrics_service.get_cached_metrics(days_back, cache_duration).await {
+    match metrics_service
+        .get_cached_metrics(days_back, cache_duration)
+        .await
+    {
         Ok(metrics) => {
             let generation_time = start_time.elapsed().as_millis() as u64;
-            
+
             LOGGER.log_business_event(
                 "anonymous_metrics_delivered",
                 Some(auth_user.user_id),
                 [
-                    ("days_back".to_string(), serde_json::Value::Number(serde_json::Number::from(days_back))),
-                    ("generation_time_ms".to_string(), serde_json::Value::Number(serde_json::Number::from(generation_time))),
-                ].iter().cloned().collect()
+                    (
+                        "days_back".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(days_back)),
+                    ),
+                    (
+                        "generation_time_ms".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(generation_time)),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
             );
 
             Ok(Json(MetricsResponse {
@@ -82,20 +97,23 @@ pub async fn get_anonymous_metrics(
         }
         Err(MetricsError::DatabaseError(msg)) => {
             let mut context = HashMap::new();
-            context.insert("user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(auth_user.user_id)
-            ));
-            context.insert("days_back".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(days_back)
-            ));
+            context.insert(
+                "user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(auth_user.user_id)),
+            );
+            context.insert(
+                "days_back".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(days_back)),
+            );
             LOGGER.log_error(&msg, context);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
         Err(MetricsError::CalculationError(msg)) => {
             let mut context = HashMap::new();
-            context.insert("user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(auth_user.user_id)
-            ));
+            context.insert(
+                "user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(auth_user.user_id)),
+            );
             LOGGER.log_error(&msg, context);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -108,14 +126,17 @@ pub async fn get_cache_stats(
     Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Json<CacheStatsResponse>, StatusCode> {
     // Only admins can access cache stats
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         LOGGER.log_business_event(
             "unauthorized_cache_access",
             Some(auth_user.user_id),
             [(
-                "role".to_string(), 
-                serde_json::Value::String(auth_user.role)
-            )].iter().cloned().collect()
+                "role".to_string(),
+                serde_json::Value::String(auth_user.role_str().to_string()),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -125,10 +146,8 @@ pub async fn get_cache_stats(
     // Create cache service with reasonable memory limits
     let cache_service = CacheService::new(state.db.clone(), 1000);
 
-    let (stats_result, cleanup_result) = tokio::join!(
-        cache_service.get_stats(),
-        cache_service.cleanup_expired()
-    );
+    let (stats_result, cleanup_result) =
+        tokio::join!(cache_service.get_stats(), cache_service.cleanup_expired());
 
     match (stats_result, cleanup_result) {
         (Ok(cache_stats), Ok(entries_cleaned)) => {
@@ -136,9 +155,18 @@ pub async fn get_cache_stats(
                 "cache_stats_delivered",
                 Some(auth_user.user_id),
                 [
-                    ("total_keys".to_string(), serde_json::Value::Number(serde_json::Number::from(cache_stats.total_keys))),
-                    ("entries_cleaned".to_string(), serde_json::Value::Number(serde_json::Number::from(entries_cleaned))),
-                ].iter().cloned().collect()
+                    (
+                        "total_keys".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(cache_stats.total_keys)),
+                    ),
+                    (
+                        "entries_cleaned".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(entries_cleaned)),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
             );
 
             Ok(Json(CacheStatsResponse {
@@ -172,19 +200,33 @@ pub async fn invalidate_cache(
     Json(request): Json<InvalidateRequest>,
 ) -> Result<Json<InvalidateResponse>, StatusCode> {
     // Only admins can invalidate cache
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         LOGGER.log_business_event(
             "unauthorized_cache_invalidation",
             Some(auth_user.user_id),
             [
-                ("role".to_string(), serde_json::Value::String(auth_user.role)),
-                ("pattern".to_string(), serde_json::Value::String(request.pattern.clone())),
-            ].iter().cloned().collect()
+                (
+                    "role".to_string(),
+                    serde_json::Value::String(auth_user.role_str().to_string()),
+                ),
+                (
+                    "pattern".to_string(),
+                    serde_json::Value::String(request.pattern.clone()),
+                ),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
         );
         return Err(StatusCode::FORBIDDEN);
     }
 
-    LOGGER.log_request("POST", "/admin/cache-invalidate", Some(auth_user.user_id), 200);
+    LOGGER.log_request(
+        "POST",
+        "/admin/cache-invalidate",
+        Some(auth_user.user_id),
+        200,
+    );
 
     let cache_service = CacheService::new(state.db.clone(), 1000);
 
@@ -194,9 +236,18 @@ pub async fn invalidate_cache(
                 "cache_invalidated",
                 Some(auth_user.user_id),
                 [
-                    ("pattern".to_string(), serde_json::Value::String(request.pattern)),
-                    ("invalidated_count".to_string(), serde_json::Value::Number(serde_json::Number::from(invalidated_count))),
-                ].iter().cloned().collect()
+                    (
+                        "pattern".to_string(),
+                        serde_json::Value::String(request.pattern),
+                    ),
+                    (
+                        "invalidated_count".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(invalidated_count)),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
             );
 
             Ok(Json(InvalidateResponse {
@@ -223,7 +274,7 @@ pub async fn warm_cache(
     Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Json<WarmCacheResponse>, StatusCode> {
     // Only admins can warm cache
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -235,14 +286,17 @@ pub async fn warm_cache(
     match cache_service.warm_cache().await {
         Ok(_) => {
             let warming_time = start_time.elapsed().as_millis() as u64;
-            
+
             LOGGER.log_business_event(
                 "cache_warmed",
                 Some(auth_user.user_id),
                 [(
                     "warming_time_ms".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(warming_time))
-                )].iter().cloned().collect()
+                    serde_json::Value::Number(serde_json::Number::from(warming_time)),
+                )]
+                .iter()
+                .cloned()
+                .collect(),
             );
 
             Ok(Json(WarmCacheResponse {

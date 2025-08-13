@@ -63,9 +63,32 @@ export default function ActivityHeatmap({ data, loading }: ActivityHeatmapProps)
     return weeks;
   };
 
+  // Get month labels positioned correctly for each week column
+  const getMonthLabelsForWeeks = (weeks: ActivityData[][]) => {
+    const monthLabels: { [key: number]: string } = {};
+    const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+    let lastMonth = -1;
+
+    weeks.forEach((week, weekIndex) => {
+      // Get the first valid date in this week (usually Monday or first day)
+      const firstDayWithDate = week.find(day => day.date);
+      if (firstDayWithDate) {
+        const currentMonth = new Date(firstDayWithDate.date).getMonth();
+        
+        // If this is a new month and it's not the first week, add the label
+        if (currentMonth !== lastMonth) {
+          monthLabels[weekIndex] = monthNames[currentMonth];
+          lastMonth = currentMonth;
+        }
+      }
+    });
+
+    return monthLabels;
+  };
+
   const weeks = groupDataByWeeks(data);
   const dayLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-  const monthLabels = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+  const monthLabelsMap = getMonthLabelsForWeeks(weeks);
 
   if (loading) {
     return (
@@ -94,11 +117,11 @@ export default function ActivityHeatmap({ data, loading }: ActivityHeatmapProps)
           {/* Month labels */}
           <div className="flex mb-2">
             <div className="w-8"></div>
-            <div className="flex-1 flex justify-between text-xs text-gray-500 dark:text-gray-400">
-              {monthLabels.map((month, index) => (
-                <span key={index} className="flex-shrink-0">
-                  {month}
-                </span>
+            <div className="flex text-xs text-gray-500 dark:text-gray-400" style={{ gap: '4px' }}>
+              {weeks.map((_, weekIndex) => (
+                <div key={weekIndex} className="w-3 text-center">
+                  {monthLabelsMap[weekIndex] || ''}
+                </div>
               ))}
             </div>
           </div>

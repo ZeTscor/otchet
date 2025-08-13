@@ -1,9 +1,9 @@
-use std::time::Instant;
-use std::collections::HashMap;
-use sqlx::{PgPool, Row};
-use crate::utils::logger::LOGGER;
 use crate::handlers::admin::*;
 use crate::models::application::ApplicationResponse;
+use crate::utils::logger::LOGGER;
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct AnalyticsService {
@@ -24,11 +24,7 @@ impl AnalyticsService {
     pub async fn get_comprehensive_analytics(&self) -> Result<AnalyticsResponse, AnalyticsError> {
         let start_time = Instant::now();
 
-        LOGGER.log_business_event(
-            "analytics_request_started",
-            None,
-            HashMap::new()
-        );
+        LOGGER.log_business_event("analytics_request_started", None, HashMap::new());
 
         let results = tokio::try_join!(
             self.get_basic_counts(),
@@ -43,7 +39,11 @@ impl AnalyticsService {
         );
 
         let duration = start_time.elapsed();
-        LOGGER.log_performance_metric("analytics_total_duration", duration.as_millis() as f64, HashMap::new());
+        LOGGER.log_performance_metric(
+            "analytics_total_duration",
+            duration.as_millis() as f64,
+            HashMap::new(),
+        );
 
         match results {
             Ok((
@@ -55,7 +55,7 @@ impl AnalyticsService {
                 screening_stats,
                 interview_stats,
                 success_rate,
-                top_performing_students
+                top_performing_students,
             )) => {
                 let daily_stats = vec![]; // Simplified for now
                 let response_times = ResponseTimeStats {
@@ -80,15 +80,13 @@ impl AnalyticsService {
                     top_performing_students,
                 };
 
-                LOGGER.log_business_event(
-                    "analytics_request_completed",
-                    None,
-                    HashMap::new()
-                );
+                LOGGER.log_business_event("analytics_request_completed", None, HashMap::new());
 
                 Ok(analytics)
             }
-            Err(_) => Err(AnalyticsError::DatabaseError("Failed to fetch analytics".to_string()))
+            Err(_) => Err(AnalyticsError::DatabaseError(
+                "Failed to fetch analytics".to_string(),
+            )),
         }
     }
 
@@ -96,7 +94,7 @@ impl AnalyticsService {
         let row = sqlx::query(
             "SELECT 
                 (SELECT COUNT(*)::bigint FROM users WHERE role = 'student') as students,
-                (SELECT COUNT(*)::bigint FROM applications) as applications"
+                (SELECT COUNT(*)::bigint FROM applications) as applications",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -108,7 +106,7 @@ impl AnalyticsService {
         let rows = sqlx::query(
             "SELECT status::text, COUNT(*)::bigint as count 
              FROM applications 
-             GROUP BY status"
+             GROUP BY status",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -176,7 +174,7 @@ impl AnalyticsService {
              WHERE updated_at < NOW() - INTERVAL '7 days' 
                AND status NOT IN ('rejected', 'next_stage')
              ORDER BY updated_at ASC
-             LIMIT 5"
+             LIMIT 5",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -190,7 +188,7 @@ impl AnalyticsService {
                 COUNT(*)::bigint as total,
                 COUNT(CASE WHEN result = 'passed' THEN 1 END)::bigint as passed,
                 COUNT(CASE WHEN result = 'failed' THEN 1 END)::bigint as failed
-             FROM screenings"
+             FROM screenings",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -213,7 +211,7 @@ impl AnalyticsService {
                 COUNT(*)::bigint as total,
                 COUNT(CASE WHEN result = 'passed' THEN 1 END)::bigint as passed,
                 COUNT(CASE WHEN result = 'failed' THEN 1 END)::bigint as failed
-             FROM interviews"
+             FROM interviews",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -291,7 +289,7 @@ impl AnalyticsService {
              GROUP BY u.id, u.email, u.first_name, u.last_name
              HAVING COUNT(a.id) > 0
              ORDER BY COUNT(CASE WHEN i.result = 'passed' THEN 1 END) DESC
-             LIMIT 5"
+             LIMIT 5",
         )
         .fetch_all(&self.pool)
         .await?;

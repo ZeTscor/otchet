@@ -1,5 +1,5 @@
 use axum::{
-    extract::{State, Extension, Query, Path},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::Json,
 };
@@ -108,15 +108,21 @@ pub async fn get_analytics(
     Extension(auth_user): Extension<AuthUser>,
     Query(_query): Query<AdminQuery>,
 ) -> Result<Json<AnalyticsResponse>, StatusCode> {
+    use crate::services::analytics::{AnalyticsError, AnalyticsService};
     use crate::utils::logger::LOGGER;
-    use crate::services::analytics::{AnalyticsService, AnalyticsError};
 
     // Check if user is admin
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         LOGGER.log_business_event(
             "unauthorized_analytics_access",
             Some(auth_user.user_id),
-            [("role".to_string(), serde_json::Value::String(auth_user.role))].iter().cloned().collect()
+            [(
+                "role".to_string(),
+                serde_json::Value::String(auth_user.role_str().to_string()),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -124,28 +130,30 @@ pub async fn get_analytics(
     LOGGER.log_request("GET", "/admin/analytics", Some(auth_user.user_id), 200);
 
     let analytics_service = AnalyticsService::new(state.db.clone());
-    
+
     match analytics_service.get_comprehensive_analytics().await {
         Ok(analytics) => {
             LOGGER.log_business_event(
                 "analytics_request_completed",
                 Some(auth_user.user_id),
-                HashMap::new()
+                HashMap::new(),
             );
             Ok(Json(analytics))
         }
         Err(AnalyticsError::DatabaseError(msg)) => {
             let mut context = HashMap::new();
-            context.insert("user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(auth_user.user_id)
-            ));
-            context.insert("error_type".to_string(), serde_json::Value::String("database".to_string()));
+            context.insert(
+                "user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(auth_user.user_id)),
+            );
+            context.insert(
+                "error_type".to_string(),
+                serde_json::Value::String("database".to_string()),
+            );
             LOGGER.log_error(&msg, context);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
-        Err(AnalyticsError::PermissionDenied) => {
-            Err(StatusCode::FORBIDDEN)
-        }
+        Err(AnalyticsError::PermissionDenied) => Err(StatusCode::FORBIDDEN),
     }
 }
 
@@ -154,12 +162,12 @@ pub async fn get_all_students(
     Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Json<Vec<UserResponse>>, StatusCode> {
     // Check if user is admin
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         return Err(StatusCode::FORBIDDEN);
     }
 
     let students = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE role = 'student' ORDER BY created_at DESC"
+        "SELECT * FROM users WHERE role = 'student' ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
     .await
@@ -174,38 +182,39 @@ pub async fn get_all_applications(
     Query(_query): Query<AdminQuery>,
 ) -> Result<Json<Vec<ApplicationResponse>>, StatusCode> {
     // Check if user is admin
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let applications = sqlx::query_as::<_, Application>(
-        "SELECT * FROM applications ORDER BY created_at DESC"
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let applications =
+        sqlx::query_as::<_, Application>("SELECT * FROM applications ORDER BY created_at DESC")
+            .fetch_all(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut responses = Vec::new();
     for app in applications {
         let mut response = ApplicationResponse::from(app.clone());
-        
+
         // Fetch screening if exists
         if let Ok(screening) = sqlx::query_as::<_, crate::models::screening::Screening>(
-            "SELECT * FROM screenings WHERE application_id = $1"
+            "SELECT * FROM screenings WHERE application_id = $1",
         )
         .bind(app.id)
         .fetch_one(&state.db)
-        .await {
+        .await
+        {
             response.screening = Some(crate::models::screening::ScreeningResponse::from(screening));
         }
 
         // Fetch interview if exists
         if let Ok(interview) = sqlx::query_as::<_, crate::models::interview::Interview>(
-            "SELECT * FROM interviews WHERE application_id = $1"
+            "SELECT * FROM interviews WHERE application_id = $1",
         )
         .bind(app.id)
         .fetch_one(&state.db)
-        .await {
+        .await
+        {
             response.interview = Some(crate::models::interview::InterviewResponse::from(interview));
         }
 
@@ -219,14 +228,20 @@ pub async fn get_admin_activity(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
 ) -> Result<Json<Vec<crate::services::activity::ActivityData>>, StatusCode> {
-    use crate::services::activity::{ActivityService, ActivityError};
+    use crate::services::activity::{ActivityError, ActivityService};
     use crate::utils::logger::LOGGER;
 
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         LOGGER.log_business_event(
             "unauthorized_admin_activity_access",
             Some(auth_user.user_id),
-            [("role".to_string(), serde_json::Value::String(auth_user.role))].iter().cloned().collect()
+            [(
+                "role".to_string(),
+                serde_json::Value::String(auth_user.role_str().to_string()),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -234,30 +249,36 @@ pub async fn get_admin_activity(
     LOGGER.log_request("GET", "/admin/activity", Some(auth_user.user_id), 200);
 
     let activity_service = ActivityService::new(state.db.clone());
-    
+
     match activity_service.get_admin_activity().await {
         Ok(activity_data) => {
             LOGGER.log_business_event(
                 "admin_activity_request_completed",
                 Some(auth_user.user_id),
-                [("activity_days".to_string(), serde_json::Value::Number(
-                    serde_json::Number::from(activity_data.len())
-                ))].iter().cloned().collect()
+                [(
+                    "activity_days".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(activity_data.len())),
+                )]
+                .iter()
+                .cloned()
+                .collect(),
             );
             Ok(Json(activity_data))
         }
         Err(ActivityError::DatabaseError(msg)) => {
             let mut context = HashMap::new();
-            context.insert("user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(auth_user.user_id)
-            ));
-            context.insert("error_type".to_string(), serde_json::Value::String("database".to_string()));
+            context.insert(
+                "user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(auth_user.user_id)),
+            );
+            context.insert(
+                "error_type".to_string(),
+                serde_json::Value::String("database".to_string()),
+            );
             LOGGER.log_error(&msg, context);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
-        Err(ActivityError::PermissionDenied) => {
-            Err(StatusCode::FORBIDDEN)
-        }
+        Err(ActivityError::PermissionDenied) => Err(StatusCode::FORBIDDEN),
     }
 }
 
@@ -266,17 +287,21 @@ pub async fn get_user_activity_admin(
     Extension(auth_user): Extension<AuthUser>,
     Path(user_id): Path<i32>,
 ) -> Result<Json<Vec<crate::services::activity::ActivityData>>, StatusCode> {
-    use crate::services::activity::{ActivityService, ActivityError};
+    use crate::services::activity::{ActivityError, ActivityService};
     use crate::utils::logger::LOGGER;
 
     // Only admins can access user activity
-    if auth_user.role != "admin" {
+    if !auth_user.is_admin() {
         LOGGER.log_business_event(
             "unauthorized_user_activity_access",
             Some(auth_user.user_id),
-            [("target_user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(user_id)
-            ))].iter().cloned().collect()
+            [(
+                "target_user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(user_id)),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -284,12 +309,16 @@ pub async fn get_user_activity_admin(
     LOGGER.log_business_event(
         "user_activity_request_started",
         Some(auth_user.user_id),
-        [("target_user_id".to_string(), serde_json::Value::Number(
-            serde_json::Number::from(user_id)
-        ))].iter().cloned().collect()
+        [(
+            "target_user_id".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(user_id)),
+        )]
+        .iter()
+        .cloned()
+        .collect(),
     );
 
-    let activity_service = ActivityService::new(state.pool.clone());
+    let activity_service = ActivityService::new(state.db.clone());
 
     match activity_service.get_user_activity(user_id).await {
         Ok(activity_data) => {
@@ -297,30 +326,38 @@ pub async fn get_user_activity_admin(
                 "user_activity_request_completed",
                 Some(auth_user.user_id),
                 [
-                    ("target_user_id".to_string(), serde_json::Value::Number(
-                        serde_json::Number::from(user_id)
-                    )),
-                    ("activity_days".to_string(), serde_json::Value::Number(
-                        serde_json::Number::from(activity_data.len())
-                    ))
-                ].iter().cloned().collect()
+                    (
+                        "target_user_id".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(user_id)),
+                    ),
+                    (
+                        "activity_days".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(activity_data.len())),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
             );
             Ok(Json(activity_data))
         }
         Err(ActivityError::DatabaseError(msg)) => {
             let mut context = HashMap::new();
-            context.insert("admin_user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(auth_user.user_id)
-            ));
-            context.insert("target_user_id".to_string(), serde_json::Value::Number(
-                serde_json::Number::from(user_id)
-            ));
-            context.insert("error_type".to_string(), serde_json::Value::String("database".to_string()));
+            context.insert(
+                "admin_user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(auth_user.user_id)),
+            );
+            context.insert(
+                "target_user_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(user_id)),
+            );
+            context.insert(
+                "error_type".to_string(),
+                serde_json::Value::String("database".to_string()),
+            );
             LOGGER.log_error(&msg, context);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
-        Err(ActivityError::PermissionDenied) => {
-            Err(StatusCode::FORBIDDEN)
-        }
+        Err(ActivityError::PermissionDenied) => Err(StatusCode::FORBIDDEN),
     }
 }

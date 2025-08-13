@@ -1,9 +1,9 @@
-use std::time::Instant;
-use std::collections::HashMap;
-use sqlx::{PgPool, Row};
-use serde::Serialize;
-use chrono::{DateTime, Utc, Duration};
 use crate::utils::logger::LOGGER;
+use chrono::{DateTime, Duration, Utc};
+use serde::Serialize;
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Debug, Serialize, serde::Deserialize)]
 pub struct TimeBasedMetrics {
@@ -34,9 +34,9 @@ pub struct JobDomain {
 
 #[derive(Debug, Serialize, serde::Deserialize)]
 pub struct TemporalPatterns {
-    pub best_application_days: Vec<String>, // Day of week
+    pub best_application_days: Vec<String>,    // Day of week
     pub seasonal_trends: HashMap<String, f64>, // Month -> relative activity
-    pub peak_hours: Vec<i32>, // Hours when most applications are submitted
+    pub peak_hours: Vec<i32>,                  // Hours when most applications are submitted
 }
 
 #[derive(Debug, Serialize, serde::Deserialize)]
@@ -64,20 +64,26 @@ impl MetricsService {
     }
 
     /// Generate anonymized time-based metrics for the specified period
-    pub async fn generate_anonymous_metrics(&self, days_back: i32) -> Result<TimeBasedMetrics, MetricsError> {
+    pub async fn generate_anonymous_metrics(
+        &self,
+        days_back: i32,
+    ) -> Result<TimeBasedMetrics, MetricsError> {
         let start_time = Instant::now();
-        
+
         LOGGER.log_business_event(
             "anonymous_metrics_generation_started",
             None,
             [(
-                "period_days".to_string(), 
-                serde_json::Value::Number(serde_json::Number::from(days_back))
-            )].iter().cloned().collect()
+                "period_days".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(days_back)),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
 
         let period = format!("last_{}_days", days_back);
-        
+
         let (anonymous_stats, trends) = tokio::try_join!(
             self.calculate_anonymous_statistics(days_back),
             self.calculate_trend_analysis(days_back)
@@ -93,15 +99,18 @@ impl MetricsService {
 
         let duration = start_time.elapsed();
         LOGGER.log_performance_metric(
-            "anonymous_metrics_generation", 
+            "anonymous_metrics_generation",
             duration.as_millis() as f64,
-            HashMap::new()
+            HashMap::new(),
         );
 
         Ok(metrics)
     }
 
-    async fn calculate_anonymous_statistics(&self, days_back: i32) -> Result<AnonymousStatistics, sqlx::Error> {
+    async fn calculate_anonymous_statistics(
+        &self,
+        days_back: i32,
+    ) -> Result<AnonymousStatistics, sqlx::Error> {
         let cutoff_date = Utc::now().naive_utc().date() - Duration::days(days_back as i64);
 
         // Basic counts with privacy protection
@@ -135,7 +144,7 @@ impl MetricsService {
 
         // Get anonymized job domains based on company patterns
         let job_domains = self.calculate_job_domains(days_back).await?;
-        
+
         // Calculate temporal patterns
         let temporal_patterns = self.calculate_temporal_patterns(days_back).await?;
 
@@ -187,7 +196,7 @@ impl MetricsService {
              WHERE a.applied_date >= $1
              GROUP BY domain
              ORDER BY application_count DESC
-             LIMIT 10"
+             LIMIT 10",
         )
         .bind(cutoff_date)
         .fetch_all(&self.pool)
@@ -205,7 +214,10 @@ impl MetricsService {
         Ok(job_domains)
     }
 
-    async fn calculate_temporal_patterns(&self, days_back: i32) -> Result<TemporalPatterns, sqlx::Error> {
+    async fn calculate_temporal_patterns(
+        &self,
+        days_back: i32,
+    ) -> Result<TemporalPatterns, sqlx::Error> {
         let cutoff_date = Utc::now().naive_utc().date() - Duration::days(days_back as i64);
 
         // Best application days (day of week analysis)
@@ -218,13 +230,14 @@ impl MetricsService {
              LEFT JOIN interviews i ON a.id = i.application_id
              WHERE a.applied_date >= $1
              GROUP BY EXTRACT(DOW FROM applied_date), TO_CHAR(applied_date, 'Day')
-             ORDER BY success_rate DESC, applications DESC"
+             ORDER BY success_rate DESC, applications DESC",
         )
         .bind(cutoff_date)
         .fetch_all(&self.pool)
         .await?;
 
-        let best_days: Vec<String> = day_analysis.into_iter()
+        let best_days: Vec<String> = day_analysis
+            .into_iter()
             .take(3)
             .map(|row| row.get::<String, _>(0).trim().to_string())
             .collect();
@@ -237,7 +250,7 @@ impl MetricsService {
              FROM applications a
              WHERE a.applied_date >= $1
              GROUP BY EXTRACT(MONTH FROM applied_date), TO_CHAR(applied_date, 'Month')
-             ORDER BY EXTRACT(MONTH FROM applied_date)"
+             ORDER BY EXTRACT(MONTH FROM applied_date)",
         )
         .bind(cutoff_date)
         .fetch_all(&self.pool)
@@ -248,7 +261,11 @@ impl MetricsService {
         for row in seasonal_data {
             let month: String = row.get::<String, _>(0).trim().to_string();
             let apps: i64 = row.get(1);
-            let relative = if total_apps > 0 { apps as f64 / total_apps as f64 } else { 0.0 };
+            let relative = if total_apps > 0 {
+                apps as f64 / total_apps as f64
+            } else {
+                0.0
+            };
             seasonal_trends.insert(month, relative);
         }
 
@@ -261,13 +278,14 @@ impl MetricsService {
              WHERE a.applied_date >= $1
              GROUP BY EXTRACT(HOUR FROM created_at)
              ORDER BY applications DESC
-             LIMIT 3"
+             LIMIT 3",
         )
         .bind(cutoff_date)
         .fetch_all(&self.pool)
         .await?;
 
-        let peak_hours: Vec<i32> = hour_data.into_iter()
+        let peak_hours: Vec<i32> = hour_data
+            .into_iter()
             .map(|row| row.get::<f64, _>(0) as i32)
             .collect();
 
@@ -278,7 +296,10 @@ impl MetricsService {
         })
     }
 
-    async fn calculate_anonymous_geography(&self, days_back: i32) -> Result<HashMap<String, i64>, sqlx::Error> {
+    async fn calculate_anonymous_geography(
+        &self,
+        days_back: i32,
+    ) -> Result<HashMap<String, i64>, sqlx::Error> {
         let cutoff_date = Utc::now().naive_utc().date() - Duration::days(days_back as i32 as i64);
 
         // Mock geographical data based on company patterns (in real app, would use user location)
@@ -309,7 +330,10 @@ impl MetricsService {
         Ok(geography)
     }
 
-    async fn calculate_industry_breakdown(&self, days_back: i32) -> Result<HashMap<String, i64>, sqlx::Error> {
+    async fn calculate_industry_breakdown(
+        &self,
+        days_back: i32,
+    ) -> Result<HashMap<String, i64>, sqlx::Error> {
         let cutoff_date = Utc::now().naive_utc().date() - Duration::days(days_back as i32 as i64);
 
         let industry_data = sqlx::query(
@@ -333,7 +357,7 @@ impl MetricsService {
              FROM applications a
              WHERE a.applied_date >= $1  
              GROUP BY industry
-             HAVING COUNT(*) >= 2" // Minimum for anonymization
+             HAVING COUNT(*) >= 2", // Minimum for anonymization
         )
         .bind(cutoff_date)
         .fetch_all(&self.pool)
@@ -357,7 +381,7 @@ impl MetricsService {
             "SELECT 
                 COUNT(CASE WHEN applied_date >= $1 THEN 1 END) as current_week,
                 COUNT(CASE WHEN applied_date >= $2 AND applied_date < $1 THEN 1 END) as prev_week
-             FROM applications WHERE applied_date >= $2"
+             FROM applications WHERE applied_date >= $2",
         )
         .bind(current_period)
         .bind(prev_week)
@@ -373,12 +397,12 @@ impl MetricsService {
             0.0
         };
 
-        // Monthly comparison  
+        // Monthly comparison
         let monthly_data = sqlx::query(
             "SELECT 
                 COUNT(CASE WHEN applied_date >= $1 THEN 1 END) as current_month,
                 COUNT(CASE WHEN applied_date >= $2 AND applied_date < $1 THEN 1 END) as prev_month
-             FROM applications WHERE applied_date >= $2"
+             FROM applications WHERE applied_date >= $2",
         )
         .bind(current_period)
         .bind(prev_month)
@@ -419,9 +443,13 @@ impl MetricsService {
     }
 
     /// Get cached metrics or generate new ones
-    pub async fn get_cached_metrics(&self, days_back: i32, cache_duration_minutes: i32) -> Result<TimeBasedMetrics, MetricsError> {
+    pub async fn get_cached_metrics(
+        &self,
+        days_back: i32,
+        cache_duration_minutes: i32,
+    ) -> Result<TimeBasedMetrics, MetricsError> {
         let cache_key = format!("metrics_{}d", days_back);
-        
+
         // Try to get from cache first
         if let Ok(cached) = self.get_from_cache(&cache_key).await {
             LOGGER.log_business_event(
@@ -429,36 +457,45 @@ impl MetricsService {
                 None,
                 [(
                     "cache_key".to_string(),
-                    serde_json::Value::String(cache_key.clone())
-                )].iter().cloned().collect()
+                    serde_json::Value::String(cache_key.clone()),
+                )]
+                .iter()
+                .cloned()
+                .collect(),
             );
             return Ok(cached);
         }
 
         // Generate new metrics
         let metrics = self.generate_anonymous_metrics(days_back).await?;
-        
+
         // Cache the result
-        self.cache_metrics(&cache_key, &metrics, cache_duration_minutes).await?;
-        
+        self.cache_metrics(&cache_key, &metrics, cache_duration_minutes)
+            .await?;
+
         Ok(metrics)
     }
 
     async fn get_from_cache(&self, key: &str) -> Result<TimeBasedMetrics, MetricsError> {
-        let row = sqlx::query(
-            "SELECT value FROM cache_store WHERE key = $1 AND expires_at > NOW()"
-        )
-        .bind(key)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| MetricsError::DatabaseError("Cache miss".to_string()))?;
+        let row =
+            sqlx::query("SELECT value FROM cache_store WHERE key = $1 AND expires_at > NOW()")
+                .bind(key)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|_| MetricsError::DatabaseError("Cache miss".to_string()))?;
 
         let json_value: serde_json::Value = row.get(0);
-        serde_json::from_value(json_value)
-            .map_err(|e| MetricsError::CalculationError(format!("Cache deserialization error: {}", e)))
+        serde_json::from_value(json_value).map_err(|e| {
+            MetricsError::CalculationError(format!("Cache deserialization error: {}", e))
+        })
     }
 
-    async fn cache_metrics(&self, key: &str, metrics: &TimeBasedMetrics, duration_minutes: i32) -> Result<(), MetricsError> {
+    async fn cache_metrics(
+        &self,
+        key: &str,
+        metrics: &TimeBasedMetrics,
+        duration_minutes: i32,
+    ) -> Result<(), MetricsError> {
         let expires_at = Utc::now() + Duration::minutes(duration_minutes as i64);
         let json_value = serde_json::to_value(metrics)
             .map_err(|e| MetricsError::CalculationError(format!("Serialization error: {}", e)))?;
@@ -466,7 +503,7 @@ impl MetricsService {
         sqlx::query(
             "INSERT INTO cache_store (key, value, expires_at) 
              VALUES ($1, $2, $3) 
-             ON CONFLICT (key) DO UPDATE SET value = $2, expires_at = $3"
+             ON CONFLICT (key) DO UPDATE SET value = $2, expires_at = $3",
         )
         .bind(key)
         .bind(json_value)

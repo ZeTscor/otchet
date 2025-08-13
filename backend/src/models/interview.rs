@@ -1,6 +1,6 @@
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc, NaiveDate};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Interview {

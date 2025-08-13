@@ -1,5 +1,5 @@
-pub mod notification;
-pub mod analytics;
 pub mod activity;
-pub mod metrics;
+pub mod analytics;
 pub mod cache;
+pub mod metrics;
+pub mod notification;

@@ -1,8 +1,8 @@
-use std::time::Instant;
-use std::collections::HashMap;
-use sqlx::{PgPool, Row};
-use serde::Serialize;
 use crate::utils::logger::LOGGER;
+use serde::Serialize;
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Debug, Serialize)]
 pub struct ActivityData {
@@ -30,13 +30,16 @@ impl ActivityService {
     }
 
     /// Get simplified user activity for the last year
-    pub async fn get_user_activity(&self, user_id: i32) -> Result<Vec<ActivityData>, ActivityError> {
+    pub async fn get_user_activity(
+        &self,
+        user_id: i32,
+    ) -> Result<Vec<ActivityData>, ActivityError> {
         let start_time = Instant::now();
-        
+
         LOGGER.log_business_event(
-            "user_activity_request_started", 
-            Some(user_id), 
-            HashMap::new()
+            "user_activity_request_started",
+            Some(user_id),
+            HashMap::new(),
         );
 
         let query = r#"
@@ -75,35 +78,37 @@ impl ActivityService {
             .await
             .map_err(|e| ActivityError::DatabaseError(e.to_string()))?;
 
-        let activity_data: Vec<ActivityData> = rows.iter().map(|row| {
-            let applications_count: i32 = row.get(1);
-            let screenings_count: i32 = row.get(2);
-            let interviews_count: i32 = row.get(3);
-            let total_activity = applications_count + screenings_count + interviews_count;
+        let activity_data: Vec<ActivityData> = rows
+            .iter()
+            .map(|row| {
+                let applications_count: i32 = row.get(1);
+                let screenings_count: i32 = row.get(2);
+                let interviews_count: i32 = row.get(3);
+                let total_activity = applications_count + screenings_count + interviews_count;
 
-            ActivityData {
-                date: row.get::<chrono::NaiveDate, _>(0).to_string(),
-                applications_count,
-                screenings_count,
-                interviews_count,
-                total_activity,
-            }
-        }).collect();
+                ActivityData {
+                    date: row.get::<chrono::NaiveDate, _>(0).to_string(),
+                    applications_count,
+                    screenings_count,
+                    interviews_count,
+                    total_activity,
+                }
+            })
+            .collect();
 
         let duration = start_time.elapsed();
-        LOGGER.log_database_query(
-            query, 
-            duration.as_millis(), 
-            Some(activity_data.len())
-        );
+        LOGGER.log_database_query(query, duration.as_millis(), Some(activity_data.len()));
 
         LOGGER.log_business_event(
-            "user_activity_request_completed", 
+            "user_activity_request_completed",
             Some(user_id),
             [(
-                "activity_days".to_string(), 
-                serde_json::Value::Number(serde_json::Number::from(activity_data.len()))
-            )].iter().cloned().collect()
+                "activity_days".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(activity_data.len())),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
 
         Ok(activity_data)
@@ -112,12 +117,8 @@ impl ActivityService {
     /// Get admin activity overview (all users)
     pub async fn get_admin_activity(&self) -> Result<Vec<ActivityData>, ActivityError> {
         let start_time = Instant::now();
-        
-        LOGGER.log_business_event(
-            "admin_activity_request_started",
-            None,
-            HashMap::new()
-        );
+
+        LOGGER.log_business_event("admin_activity_request_started", None, HashMap::new());
 
         let query = r#"
             SELECT 
@@ -149,35 +150,37 @@ impl ActivityService {
             .await
             .map_err(|e| ActivityError::DatabaseError(e.to_string()))?;
 
-        let activity_data: Vec<ActivityData> = rows.iter().map(|row| {
-            let applications_count: i32 = row.get(1);
-            let screenings_count: i32 = row.get(2);
-            let interviews_count: i32 = row.get(3);
-            let total_activity = applications_count + screenings_count + interviews_count;
+        let activity_data: Vec<ActivityData> = rows
+            .iter()
+            .map(|row| {
+                let applications_count: i32 = row.get(1);
+                let screenings_count: i32 = row.get(2);
+                let interviews_count: i32 = row.get(3);
+                let total_activity = applications_count + screenings_count + interviews_count;
 
-            ActivityData {
-                date: row.get::<chrono::NaiveDate, _>(0).to_string(),
-                applications_count,
-                screenings_count,
-                interviews_count,
-                total_activity,
-            }
-        }).collect();
+                ActivityData {
+                    date: row.get::<chrono::NaiveDate, _>(0).to_string(),
+                    applications_count,
+                    screenings_count,
+                    interviews_count,
+                    total_activity,
+                }
+            })
+            .collect();
 
         let duration = start_time.elapsed();
-        LOGGER.log_database_query(
-            query, 
-            duration.as_millis(), 
-            Some(activity_data.len())
-        );
+        LOGGER.log_database_query(query, duration.as_millis(), Some(activity_data.len()));
 
         LOGGER.log_business_event(
             "admin_activity_request_completed",
             None,
             [(
-                "activity_days".to_string(), 
-                serde_json::Value::Number(serde_json::Number::from(activity_data.len()))
-            )].iter().cloned().collect()
+                "activity_days".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(activity_data.len())),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         );
 
         Ok(activity_data)
